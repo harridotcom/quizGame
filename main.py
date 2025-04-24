@@ -157,6 +157,8 @@ async def generate_questions(topic: str, count: int = 5) -> List[dict]:
     try:
         print("Preparing API request headers and payload")
         api_key = os.getenv("OPENROUTER_API_KEY")
+        print("OPENROUTER_API_KEY is:", os.getenv("OPENROUTER_API_KEY"))
+
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable not set")
         
@@ -166,10 +168,10 @@ async def generate_questions(topic: str, count: int = 5) -> List[dict]:
         }
         
         prompt = (
-            "Generate 5 multiple-choice questions in JSON format about stock market movements from the last 24 hours. "
-            "Include specific company names, stock symbols, and percentage changes. "
-            'Format as: {"questions":[{"text":"Question","options":["A","B"],"correct_answer":"A","difficulty":"medium","explanation":"Brief reason"}]}'
-        )
+    f"Generate 5 multiple-choice questions in JSON format about {topic}. "
+    "Include specific company names, stock symbols, and percentage changes. "
+    'Format as: {"questions":[{"text":"Question","options":["A","B"],"correct_answer":"A","difficulty":"medium","explanation":"Brief reason"}]}'
+)
         
         payload = {
             "model": "openai/gpt-3.5-turbo",
