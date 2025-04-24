@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Set, Any
 import time
 import random
 import string
+from datetime import datetime
 
 load_dotenv()  # Load environment variables from a .env file
 
@@ -104,6 +105,187 @@ def generate_room_code(length=5):
     characters = ''.join(set(string.ascii_uppercase + string.digits) - set('O0I1'))
     return ''.join(random.choice(characters) for _ in range(length))
 
+async def get_current_trends():
+    """Fetch current trending topics from Twitter or use a fallback"""
+    try:
+        # In a real implementation, you would call the Twitter API here
+        # For demo purposes, we'll use a static list that changes based on the day/time
+        now = datetime.now()
+        day_of_week = now.weekday()
+        hour = now.hour
+        
+        # These would be replaced with actual API calls to Twitter's trends endpoint
+        general_trends = [
+            "#SongkranCTWxFB",
+            "#Coachella2025",
+            "#AprilFoolsDay",
+            "#LISACHELLA",
+            "#Perfect10LinersFinalEP",
+            "#ElonMusk",
+            "#ENCHELLA", 
+            "#PahalgamTerroristAttack",
+            "#ENHYPEN", 
+            "#NintendoSwitch2"
+        ]
+        
+        # Add some time-based variations to simulate dynamic trends
+        if day_of_week == 0:  # Monday
+            general_trends.extend(["#MondayMotivation", "#NewWeekNewGoals"])
+        elif day_of_week == 4:  # Friday
+            general_trends.extend(["#FridayFeeling", "#WeekendVibes"])
+            
+        if hour < 12:
+            general_trends.append("#MorningRoutine")
+        else:
+            general_trends.append("#EveningVibes")
+            
+        return general_trends
+        
+    except Exception as e:
+        print(f"Error fetching trends: {str(e)}")
+        return [
+            "#SongkranCTWxFB",
+            "#Coachella2025",
+            "#AprilFoolsDay",
+            "#LISACHELLA",
+            "#Perfect10LinersFinalEP"
+        ]
+
+async def generate_questions(topic: str, count: int = 5) -> List[dict]:
+    """Generate stock market quiz questions using OpenRouter API"""
+    print(f"Starting generate_questions for topic: {topic}, count: {count}")
+    try:
+        print("Preparing API request headers and payload")
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable not set")
+        
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        prompt = (
+            "Generate 5 multiple-choice questions in JSON format about stock market movements from the last 24 hours. "
+            "Include specific company names, stock symbols, and percentage changes. "
+            'Format as: {"questions":[{"text":"Question","options":["A","B"],"correct_answer":"A","difficulty":"medium","explanation":"Brief reason"}]}'
+        )
+        
+        payload = {
+            "model": "openai/gpt-3.5-turbo",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.7,
+            "max_tokens": 2000
+        }
+        
+        print("Sending API request to OpenRouter")
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=15.0
+                )
+                print(f"API response status: {response.status_code}")
+                print(f"API response body: {response.text}")
+                response.raise_for_status()
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as timeout_err:
+                print(f"Timeout occurred, retrying with longer timeout: {str(timeout_err)}")
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=30.0
+                )
+                print(f"Retry API response status: {response.status_code}")
+                print(f"Retry API response body: {response.text}")
+                response.raise_for_status()
+            except httpx.HTTPStatusError as http_err:
+                print(f"HTTP error occurred: {str(http_err)}")
+                raise
+            
+            print("Parsing API response")
+            result = response.json()
+            if "choices" not in result:
+                print(f"Error: 'choices' key missing in API response: {result}")
+                raise KeyError(f"'choices' key missing in API response: {result}")
+            content = json.loads(result["choices"][0]["message"]["content"])
+            questions = content.get("questions", [])
+            print(f"Received {len(questions)} questions from API: {questions}")
+            
+            # Validate and transform questions
+            validated_questions = []
+            for q in questions:
+                if not all(k in q for k in ["text", "options", "correct_answer", "difficulty", "explanation"]):
+                    print(f"Skipping invalid question: {q}")
+                    continue
+                
+                if len(set(q["options"])) != len(q["options"]) or q["correct_answer"] not in q["options"]:
+                    print(f"Skipping question with invalid options or correct_answer: {q}")
+                    continue
+                
+                validated_questions.append({
+                    "id": str(uuid.uuid4()),
+                    "text": q["text"],
+                    "options": q["options"],
+                    "correct_answer": q["correct_answer"],
+                    "difficulty": q["difficulty"],
+                    "category": "stock market",
+                    "explanation": q["explanation"],
+                    "timestamp": time.time()
+                })
+            
+            print(f"Validated {len(validated_questions)} questions")
+            while len(validated_questions) < count:
+                print("Adding fallback question due to insufficient valid questions")
+                validated_questions.append({
+                    "id": str(uuid.uuid4()),
+                    "text": "Which company saw the largest stock price increase in the last 24 hours?",
+                    "options": ["Apple (AAPL)", "Microsoft (MSFT)", "Tesla (TSLA)", "Amazon (AMZN)"],
+                    "correct_answer": "Tesla (TSLA)",
+                    "difficulty": "medium",
+                    "category": "stock market",
+                    "explanation": "Tesla's stock surged due to positive EV market news.",
+                    "timestamp": time.time()
+                })
+            
+            print(f"Returning {len(validated_questions[:count])} questions")
+            return validated_questions[:count]
+            
+    except Exception as e:
+        print(f"Error generating stock market questions: {str(e)}")
+        print("Falling back to default questions")
+        fallback_questions = [
+            {
+                "id": str(uuid.uuid4()),
+                "text": "Which company's stock surged after a major product announcement?",
+                "options": ["Apple (AAPL)", "Microsoft (MSFT)", "Tesla (TSLA)", "Amazon (AMZN)"],
+                "correct_answer": "Apple (AAPL)",
+                "difficulty": "medium",
+                "category": "stock market",
+                "explanation": "Apple announced a new product line, boosting its stock.",
+                "timestamp": time.time()
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "text": "Which stock fell due to a recent earnings miss?",
+                "options": ["Google (GOOGL)", "Facebook (META)", "Netflix (NFLX)", "Intel (INTC)"],
+                "correct_answer": "Netflix (NFLX)",
+                "difficulty": "medium",
+                "category": "stock market",
+                "explanation": "Netflix reported lower-than-expected subscriber growth.",
+                "timestamp": time.time()
+            }
+        ]
+        return fallback_questions[:count]
+
 @app.post("/create-room")
 async def create_room(room: RoomCreate, request: Request):
     """Create a new quiz room with generated questions and short room code"""
@@ -117,13 +299,13 @@ async def create_room(room: RoomCreate, request: Request):
     if any(r["name"] == room.name for r in rooms.values()):
         raise HTTPException(status_code=400, detail="Room name already exists")
     
-    # Generate questions using OpenRouter API
+    # Generate dynamic questions
     questions = await generate_questions(room.topic, room.rounds)
     
     # Debug print to see what questions were generated
     print(f"Generated {len(questions)} questions for room {room_code}")
     if questions:
-        print(f"First question sample: {questions[0]}")
+        print(f"Sample question: {questions[0]}")
     
     # Create admin user
     admin_id = str(uuid.uuid4())
@@ -151,7 +333,6 @@ async def create_room(room: RoomCreate, request: Request):
         "scores": {admin_username: 0},
         "started": False,
         "created_at": time.time(),
-        # Initialize answered_correctly as a dict of username to empty set
         "answered_correctly": {admin_username: set()}
     }
     
@@ -418,104 +599,6 @@ async def get_leaderboard(room_id: str):
         "room_name": room["name"],
         "leaderboard": sorted(room["scores"].items(), key=lambda x: x[1], reverse=True)
     }
-
-async def generate_questions(topic: str, count: int = 5) -> List[dict]:
-    """Generate quiz questions using OpenRouter API"""
-    prompt = f""" 
-    Generate 5 quiz questions on random twitter tweets in india, the latest trends in India are the following select any and generate questions based on that:
-    	user has entered topic {topic} so please generate questions based on that also
-#SongkranCTWxFB
-#Coachella2025
-#AprilFoolsDay
-#LISACHELLA
-#Perfect10LinersFinalEP
-#ElonMusk
-#ENCHELLA, 
-#PahalgamTerroristAttack,#ENHYPEN, #NintendoSwitch2, #englot, #goodbadugly, #JENCHELLA, #4ป่าช้าแตก, #MGIxFaye1stFanMeeting, #earthquake, #Riyadh, #Pahalgam, #ค่าไฟแพง, #deprem, #JENCHELLA2025
-    . Format as JSON array with:
-    - id (string)
-    - text (question)
-    - options (array of 4 strings)
-    - correct_answer (string)
-    """
-    
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": "openai/gpt-3.5-turbo",
-        "messages": [
-            {"role": "system", "content": "You are a helpful quiz generator that always outputs valid JSON."},
-            {"role": "user", "content": prompt}
-        ],
-        "response_format": {"type": "json_object"}
-    }
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=30.0
-            )
-            
-            response.raise_for_status()
-            result = response.json()
-            
-            # Extract the JSON content
-            content = result["choices"][0]["message"]["content"]
-            content_data = json.loads(content)
-            
-            # Ensure we have a list of questions
-            if isinstance(content_data, dict):
-                questions = content_data.get("questions", [])
-            else:
-                questions = content_data if isinstance(content_data, list) else []
-            
-            # Add IDs if missing
-            for i, q in enumerate(questions):
-                q["id"] = q.get("id", str(uuid.uuid4()))
-                
-            # If no questions were generated or parsed, use fallback
-            if not questions:
-                print("WARNING: No questions generated, using fallback questions")
-                questions = [
-                    {
-                        "id": str(uuid.uuid4()),
-                        "text": f"Question 1 about {topic}?",
-                        "options": ["Option A", "Option B", "Option C", "Option D"],
-                        "correct_answer": "Option A"
-                    },
-                    {
-                        "id": str(uuid.uuid4()),
-                        "text": f"Question 2 about {topic}?",
-                        "options": ["Option A", "Option B", "Option C", "Option D"],
-                        "correct_answer": "Option B"
-                    }
-                ]
-            
-            return questions[:count]  # Return only requested number
-            
-    except Exception as e:
-        print(f"Error generating questions: {str(e)}")
-        # Fallback to test questions with more detailed fallback
-        return [
-            {
-                "id": str(uuid.uuid4()),
-                "text": f"Which platform introduced Stories first?",
-                "options": ["Facebook", "Instagram", "Snapchat", "Twitter"],
-                "correct_answer": "Snapchat"
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "text": f"Which social media platform is known for its 280-character limit?",
-                "options": ["Facebook", "Instagram", "Snapchat", "Twitter"],
-                "correct_answer": "Twitter"
-            }
-        ]
 
 @app.on_event("shutdown")
 def shutdown_event():
