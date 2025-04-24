@@ -12,7 +12,7 @@ import random
 import string
 from datetime import datetime
 
-load_dotenv()  # Load environment variables from a .env file
+load_dotenv()  # Load environment variables for other configurations
 
 app = FastAPI()
 
@@ -26,7 +26,6 @@ app.add_middleware(
 )
 
 # Constants
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 QUESTIONS_FILE = "quiz_data.json"
 
 # Custom JSON encoder to handle sets
@@ -79,6 +78,7 @@ class RoomCreate(BaseModel):
     topic: str
     max_players: Optional[int] = 10
     rounds: Optional[int] = 5
+    api_key: str  # Required API key field for OpenRouter
 
 class UserCreate(BaseModel):
     username: str
@@ -151,16 +151,14 @@ async def get_current_trends():
             "#Perfect10LinersFinalEP"
         ]
 
-async def generate_questions(topic: str, count: int = 5) -> List[dict]:
+async def generate_questions(topic: str, count: int = 5, api_key: str = None) -> List[dict]:
     """Generate stock market quiz questions using OpenRouter API"""
     print(f"Starting generate_questions for topic: {topic}, count: {count}")
     try:
         print("Preparing API request headers and payload")
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        print("OPENROUTER_API_KEY is:", os.getenv("OPENROUTER_API_KEY"))
-
+        
         if not api_key:
-            raise ValueError("OPENROUTER_API_KEY environment variable not set")
+            raise ValueError("API key not provided")
         
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -284,6 +282,36 @@ async def generate_questions(topic: str, count: int = 5) -> List[dict]:
                 "category": "stock market",
                 "explanation": "Netflix reported lower-than-expected subscriber growth.",
                 "timestamp": time.time()
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "text": "What's the typical price-to-earnings (P/E) ratio for a growth stock?",
+                "options": ["5-10", "15-25", "30-50", "Over 100"],
+                "correct_answer": "30-50",
+                "difficulty": "medium",
+                "category": "stock market",
+                "explanation": "Growth stocks typically have higher P/E ratios due to expected future earnings.",
+                "timestamp": time.time()
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "text": "Which financial metric is most important when evaluating dividend stocks?",
+                "options": ["Dividend Yield", "Price-to-Book Ratio", "Beta", "Return on Equity"],
+                "correct_answer": "Dividend Yield",
+                "difficulty": "easy",
+                "category": "stock market",
+                "explanation": "Dividend yield indicates how much a company pays out in dividends relative to its share price.",
+                "timestamp": time.time()
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "text": "What typically happens to bond prices when interest rates rise?",
+                "options": ["They rise", "They fall", "They remain unchanged", "They become more volatile"],
+                "correct_answer": "They fall",
+                "difficulty": "medium",
+                "category": "stock market",
+                "explanation": "Bond prices have an inverse relationship with interest rates.",
+                "timestamp": time.time()
             }
         ]
         return fallback_questions[:count]
@@ -301,8 +329,8 @@ async def create_room(room: RoomCreate, request: Request):
     if any(r["name"] == room.name for r in rooms.values()):
         raise HTTPException(status_code=400, detail="Room name already exists")
     
-    # Generate dynamic questions
-    questions = await generate_questions(room.topic, room.rounds)
+    # Generate dynamic questions with the provided API key
+    questions = await generate_questions(room.topic, room.rounds, api_key=room.api_key)
     
     # Debug print to see what questions were generated
     print(f"Generated {len(questions)} questions for room {room_code}")
